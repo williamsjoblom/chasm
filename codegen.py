@@ -28,9 +28,9 @@ def generate_instr(instr, symbol_table, ln_no):
     operation = instr.op_code() << 3
     
     if len(instr.operand) == 0:
-        return [struct.pack("B", operation)]
+        return [struct.pack("B", operation), "\0"]
     else:
-        operation = operation | instr.operand.mode;
+        operation = operation | instr.operand.mode
         return [struct.pack("B", operation), generate_operand(instr.operand, symbol_table, ln_no)]
 
     
