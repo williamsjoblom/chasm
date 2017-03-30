@@ -1,7 +1,7 @@
 import struct, re, error
 
 """ OPs """
-ops = ["NOP", "LDA", "ADC", "AND"]
+ops = ["NOP", "LDA", "TAX", "TXA", "TAY", "TYA", "ADC","SBC", "AND", "ORA", "EOR", "ASL"]
 
 """ Addressing Modes """
 IMM, ABS, ZP_ABS, ABS_X, INDIR, ZP_INDIR, INDEXED_INDIR_X, INDIR_INDEXED_X = range(8)
