@@ -27,18 +27,15 @@ Generate instruction.
 def generate_instr(instr, symbol_table, ln_no):
     operation = instr.op_code() << 3
     
-    if len(instr.operand) == 0:
-        return [struct.pack("B", operation), "\0"]
-    else:
-        operation = operation | instr.operand.mode
-        return [struct.pack("B", operation), generate_operand(instr.operand, symbol_table, ln_no)]
+    operation = operation | instr.addr_mode(ln_no)
+    return [struct.pack("B", operation), generate_operand(instr.operand, symbol_table, ln_no)]
 
     
 """
 Generate symbol table and calculate label offsets.
 """
-def generate_symbol_table(nodes):
-    position = 0
+def generate_symbol_table(nodes, offset):
+    position = offset
     symbol_table = {}
     
     for node in nodes:
@@ -55,18 +52,15 @@ def generate_symbol_table(nodes):
 """
 Generate array containing assembled code.
 """
-def generate(nodes):
-    symbol_table = generate_symbol_table(nodes)
+def generate(nodes, offset):
+    symbol_table = generate_symbol_table(nodes, offset)
     
     buf = []
-    position = 0
     
     for i in range(len(nodes)):
         node = nodes[i]
-
         if not isinstance(node, Label):
             b = generate_instr(node, symbol_table, i)
-            position += len(b)
             buf.extend(b)
 
     return buf

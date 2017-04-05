@@ -2,15 +2,16 @@
 
 import sys, error, parser, codegen
 
-def assemble_file(path):      
+def assemble_file(path, offset=0):      
     nodes = parser.parse(path)
-    buf = codegen.generate(nodes)
+    buf = codegen.generate(nodes, offset)
         
     with open("a.out", 'wb') as f:
         for b in buf:
             f.write(b)
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        error.error("syntax: chasm INPUT_FILE")
-    assemble_file(sys.argv[1])
+    if len(sys.argv) != 3:
+        error.error("syntax: chasm INPUT_FILE OFFSET")
+    
+    assemble_file(sys.argv[1], int(sys.argv[2], 16))

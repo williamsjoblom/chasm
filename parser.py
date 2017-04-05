@@ -1,12 +1,12 @@
 import struct, re, error
 
 """ OPs """
-ops = ["NOP", "LDA", "TAX", "TXA", "TAY", "TYA", "ADC","SBC", "AND", "ORA", "EOR", "ASL"]
+ops = ["NOP", "LDA", "TAX", "TXA", "TAY", "TYA", "ADC","SBC", "AND", "ORA", "EOR", "ASL", "LSR", "INX", "DEX", "JMP", "STA", "PHA", "PLA", "JSR", "RTS", "CMP"]
+jmp_ops = [ "JMP", "JSR" ]
 
 """ Addressing Modes """
 IMM, ABS, ZP_ABS, ABS_X, INDIR, ZP_INDIR, INDEXED_INDIR_X, INDIR_INDEXED_X = range(8)
 IMPL = -1
-
 
 """
 Instruction.
@@ -19,6 +19,13 @@ class Instr:
     def __init__(self, op, operand):
         self.op = op
         self.operand = operand
+        
+        # Remove ZP addressing from jump operands
+        if self.op in jmp_ops:
+            if self.operand.mode == ZP_ABS:
+                self.operand.mode = ABS
+            elif self.operand.mode == ZP_INDIR:
+                self.operand.mode = INDIR
 
         
     """
@@ -27,7 +34,24 @@ class Instr:
     def op_code(self):
         return ops.index(self.op.upper())
 
-    
+
+    """
+    Addressing mode bits
+    """
+    def addr_mode(self, ln_no):
+        if self.op in jmp_ops:
+            if self.operand.mode == ABS:
+                return IMM
+            elif self.operand.mode == INDIR:
+                return ABS
+            else:
+                error.error(self.op.upper() + " only allows ABSOLUTE and INDIRECT addressing")
+        elif self.operand.mode == IMPL:
+            return IMM
+        else:
+            return self.operand.mode
+        
+
     def __str__(self):
         return self.op + " " + str(self.operand)
 
@@ -50,9 +74,10 @@ class Operand:
     """
     Constructor.
     """
-    def __init__(self, mode=IMPL, value=None):
+    def __init__(self, mode=IMPL, value=0):
         self.mode = mode
         self.value = value
+
 
     def __str__(self):
         if self.mode == IMPL:
@@ -67,7 +92,7 @@ class Operand:
         if self.mode == ABS_X:
             return str(self.value) + ", X"
         
-        if self.mode == INDIR or  self.mode == ZP_INDIR:
+        if self.mode == INDIR or self.mode == ZP_INDIR:
             return "(" + str(self.value) + ")"
         
         if self.mode == INDEXED_INDIR_X:
@@ -83,11 +108,8 @@ class Operand:
             return False
         return self.mode == other.mode and self.value == other.value
 
-    def __len__(self):
-        if self.mode == IMPL:
-            return 0
-        
-        if self.mode in [IMM, ZP_ABS, ZP_INDIR]: # 1 byte operands
+    def __len__(self):   
+        if self.mode in [IMPL, IMM, ZP_ABS, ZP_INDIR]: # 1 byte operands
             return 1
         
         return 2
@@ -162,7 +184,7 @@ def parse_num(line, ln_no):
     numbers = "0123456789"
     
     if line.startswith("$"):
-        base = 16;
+        base = 16
         line = line[1:]
         numbers = "0123456789ABCDEF"
         
@@ -282,7 +304,7 @@ def parse_operand(line, ln_no):
             break
 
     if operand == None:
-        return (line, Operand(IMPL, None))
+        return (line, Operand())
     
     if not isinstance(operand.value, Label) and operand.value < 256:
         operand.mode = zero_page(operand.mode)
