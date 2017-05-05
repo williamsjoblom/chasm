@@ -5,7 +5,10 @@ import sys
 """
 Print error message and exit.
 """
-def error(message, ln_no=-1):
+def error(message, ln_no=-1, path=None):
+    if path:
+        message = path + ": " + message
+    
     if ln_no >= 0:
         message = "[" + str(ln_no) + "] " + message
 

@@ -36,7 +36,7 @@ class Instr:
     """
     Addressing mode bits
     """
-    def addr_mode(self, ln_no):
+    def addr_mode(self, ln_no, path):
         if self.op in jmp_ops:
             if self.operand.mode == ABS:
                 return JMP_ABS
@@ -124,6 +124,12 @@ class Label:
     def __str__(self):
         return self.identifier + ":"
 
+
+class Literal:
+    def __init__(self, data):
+        if isinstance(data, str):
+            self.data = data.encode("ascii")
+            print(self.data)
     
 """
 Read chars from specified line while fn(c) is true.
@@ -152,7 +158,7 @@ def read_index(line):
 """
 Parse label.
 """
-def parse_label(line, ln_no):
+def parse_label(line, ln_no, path):
     if len(line) == 0:
         return (line, None)
 
@@ -160,7 +166,7 @@ def parse_label(line, ln_no):
     
     if label.upper() not in ops:
         if not line.startswith(":"):
-            error.error("Expected ':'", ln_no)
+            error.error("Expected ':'", ln_no, path)
         
         return (line[1:], Label(label))
     else:
@@ -170,13 +176,13 @@ def parse_label(line, ln_no):
 """
 Parse number.
 """
-def parse_num(line, ln_no):
+def parse_num(line, ln_no, path):
     line, label = read(line, (lambda c : c.isalpha() or c == '_'))
     if len(label) != 0:
         if label.upper() not in ops:
             return (line, Label(label))
         else:
-            error.error("'" + label + "' not a valid label", ln_no)
+            error.error("'" + label + "' not a valid label", ln_no, path)
     
     base = 10;
     numbers = "0123456789"
@@ -194,7 +200,7 @@ def parse_num(line, ln_no):
     try:
         return (line, int(result, base))
     except ValueError:
-        error.error("Invalid number literal", ln_no)
+        error.error("Invalid number literal", ln_no, path)
 
         
 """ 
@@ -209,28 +215,28 @@ def zero_page(mode):
 """
 Return indexed variant of specified mode. If not available raise an error.
 """
-def indexed(mode, ln_no):
+def indexed(mode, ln_no, path):
     if mode == ABS:
         return ABS_X
     if mode == INDIR:
         return INDEXED_INDIR_X
-    error.error("Bad index", ln_no)
+    error.error("Bad index", ln_no, path)
 
 
 """
 Parse immediate operand.
 """
-def parse_imm(line, ln_no):
+def parse_imm(line, ln_no, path):
     if not line.startswith("#"):
         return (line, None)
 
-    line, value = parse_num(line[1:], ln_no)
+    line, value = parse_num(line[1:], ln_no, path)
 
     if value == None:
         error.error("Expected immediate value")
 
     if value > 255:
-        error.error("Operand must be in range 0-255", ln_no)
+        error.error("Operand must be in range 0-255", ln_no, path)
 
     return (line, Operand(IMM, value))
 
@@ -238,10 +244,10 @@ def parse_imm(line, ln_no):
 """
 Parse absolute operand.
 """
-def parse_abs(line, ln_no):
+def parse_abs(line, ln_no, path):
     mode = ABS
     
-    line, value = parse_num(line, ln_no)
+    line, value = parse_num(line, ln_no, path)
 
     if value == None:
         return (line, None)
@@ -256,13 +262,13 @@ def parse_abs(line, ln_no):
 """
 Parse indirect operand.
 """
-def parse_indir(line, ln_no):
+def parse_indir(line, ln_no, path):
     mode = INDIR
     
     if not line.startswith("("):
         return (line, None)
     
-    line, value = parse_num(line[1:], ln_no)
+    line, value = parse_num(line[1:], ln_no, path)
     
     if value == None:
         error.error("Expected indirect address")
@@ -289,12 +295,12 @@ def parse_indir(line, ln_no):
 """
 Parse operand.
 """        
-def parse_operand(line, ln_no):
+def parse_operand(line, ln_no, path):
     operand = None
     
     operand_parse_functions = [ parse_imm, parse_abs, parse_indir ]
     for fn in operand_parse_functions:
-        line, operand = fn(line, ln_no)
+        line, operand = fn(line, ln_no, path)
 
         if operand != None:
             break
@@ -306,7 +312,7 @@ def parse_operand(line, ln_no):
         operand.mode = zero_page(operand.mode)
     
     if not isinstance(operand.value, Label) and operand.value > 65535:
-        error.error("Operand must be in range 0-65535", ln_no)
+        error.error("Operand must be in range 0-65535", ln_no, path)
     
     return (line, operand)
     
@@ -314,16 +320,16 @@ def parse_operand(line, ln_no):
 """
 Parse instruction.
 """
-def parse_instr(line, ln_no):
+def parse_instr(line, ln_no, path):
     line, op = read(line, str.isalpha)
 
     if len(op) == 0:
         return (line, None)
     
     if op.upper() not in ops:
-        error.error("Unknown instruction: '" + op + "'", ln_no)
+        error.error("Unknown instruction: '" + op + "'", ln_no, path)
 
-    line, operand = parse_operand(line, ln_no)
+    line, operand = parse_operand(line, ln_no, path)
         
     return (line, Instr(op, operand))
 
@@ -331,20 +337,20 @@ def parse_instr(line, ln_no):
 """
 Parse line.
 """
-def parse_line(line, ln_no):
+def parse_line(line, ln_no, path):
     line = line.strip()
     
     if line.startswith(";"):
         return [ ]
 
-    nline, label = parse_label(line, ln_no)
+    nline, label = parse_label(line, ln_no, path)
     if label != None:
-        return [ label ] + parse_line(nline, ln_no)
+        return [ label ] + parse_line(nline, ln_no, path)
 
-    line, op = parse_instr(line, ln_no)
+    line, op = parse_instr(line, ln_no, path)
     
     if len(line) > 0 and not line.trim().startswith(";"):
-        error.error("Unexpected trailing characters '" + line + "'", ln_no)
+        error.error("Unexpected trailing characters '" + line + "'", ln_no, path)
 
     if op == None:
         return [ ]
@@ -355,17 +361,20 @@ def parse_line(line, ln_no):
 """
 Parse file with specified path.
 """
-def parse(path):
+def parse(paths):
     nodes = []
-    ln_no = 0
+    
+    for path in paths:
+        ln_no = 0
+        try:
+            with open(path, "r") as f:
+                for line in f:
+                    parsed_line = parse_line(line, ln_no, path)
+                    nodes.extend(parsed_line)
+                    ln_no += 1
+                    
+                    
+        except:
+            error.error("Error opening file", path=path)
 
-    try:
-        with open(path, "r") as f:
-            for line in f:
-                parsed_line = parse_line(line, ln_no)
-                nodes.extend(parsed_line)
-                ln_no += 1
-            
-            return nodes
-    except:
-        error.error("Error opening file")
+    return nodes

@@ -25,28 +25,35 @@ def create_rom_buffer(buf, code_size, size, reset_vector):
     rom_buffer.extend(buf) # Machine code
     rom_buffer.extend(padding) # NOP padding
     rom_buffer.extend(struct.pack("<H", reset_vector)) # Reset vector
-    return rom_buffer
+    return (rom_buffer, size)
 
-def assemble_file(path, offset, size, entry_label):      
-    nodes = parser.parse(path)
+def assemble_file(paths, offset, size, entry_label):      
+    nodes = parser.parse(paths)
     buf, entry_point, code_size = codegen.generate(nodes, offset, entry_label)
 
-    rom = create_rom_buffer(buf, code_size, size, entry_point)
+    rom, rom_size = create_rom_buffer(buf, code_size, size, entry_point)
     
     with open("a.out", 'wb') as f:
         for b in rom:
             f.write(b)
 
-def assemble_vhdl(path, vhdl_path, offset, size, entry_label):
-    assemble_file(path, offset, size, entry_label)
+def assemble_vhdl(paths, vhdl_path, offset, size, entry_label):
+    nodes = parser.parse(paths)
+    buf, entry_point, code_size = codegen.generate(nodes, offset, entry_label)
+
+    rom, rom_size = create_rom_buffer(buf, code_size, size, entry_point)
+    
+    with open("a.out", 'wb') as f:
+        for b in rom:
+            f.write(b)
      
     vhdl_template = None
     with open(vhdl_path, 'r') as vhdl_file:
         vhdl_template = vhdl_file.read()
+    
+    required_bits = int(math.log(rom_size, 2))
 
-    required_bits = int(math.ceil(math.log(size, 2)))
-
-    vhdl_template = vhdl_template.replace("<MAX_INDEX>", str(size - 1))
+    vhdl_template = vhdl_template.replace("<MAX_INDEX>", str(rom_size - 1))
     vhdl_template = vhdl_template.replace("<MAX_BIT>", str(required_bits - 1))
     
     sp = vhdl_template.split("<BUFFER>")
@@ -77,7 +84,7 @@ if __name__ == "__main__":
     p.add_argument("--vhdl", help="VHDL template")
     p.add_argument("--entry", help="entry point label (default is offset address)")
     p.add_argument("--size", help="rom size")
-    p.add_argument("input")
+    p.add_argument("input", nargs='*')
     args = p.parse_args()
     
     offset = args.offset if args.offset else "E000"
