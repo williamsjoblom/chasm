@@ -1,7 +1,7 @@
-import struct, parser, error
+import sys, struct, parser, error
 
 from parser import Instr, Operand, Label
-from parser import IMPL, IMM, ABS, ZP_ABS, ABS_X, INDIR, ZP_INDIR, INDEXED_INDIR_X, INDIR_INDEXED_X
+from parser import IMPL, IMM, ABS, ZP_ABS, ABS_X, INDIR, JMP_ABS, INDEXED_INDIR_X, INDIR_INDEXED_X
 
 
 """
@@ -12,13 +12,13 @@ def generate_operand(operand, symbol_table, ln_no):
 
     if isinstance(operand.value, Label):
         if operand.value.identifier.lower() not in symbol_table:
-            error.error("Label not defined", ln_no)
+            error.error("Label not defined: " + operand.value.identifier.lower(), ln_no)
         value = symbol_table[operand.value.identifier.lower()]
     
     if len(operand) == 1: # 8-bit operand
-        return struct.pack("B", value)
+        return (struct.pack("B", value), 1)
     elif len(operand) == 2:                                       # 16-bit operand
-        return struct.pack("<H", value)
+        return (struct.pack("<H", value), 2)
 
     
 """
@@ -28,7 +28,9 @@ def generate_instr(instr, symbol_table, ln_no):
     operation = instr.op_code() << 3
     
     operation = operation | instr.addr_mode(ln_no)
-    return [struct.pack("B", operation), generate_operand(instr.operand, symbol_table, ln_no)]
+    
+    operand, operand_size = generate_operand(instr.operand, symbol_table, ln_no)
+    return ([struct.pack("B", operation), operand], 1 + operand_size)
 
     
 """
@@ -52,15 +54,25 @@ def generate_symbol_table(nodes, offset):
 """
 Generate array containing assembled code.
 """
-def generate(nodes, offset):
+def generate(nodes, offset, entry_label):
     symbol_table = generate_symbol_table(nodes, offset)
     
     buf = []
     
+    code_size = 0
     for i in range(len(nodes)):
         node = nodes[i]
         if not isinstance(node, Label):
-            b = generate_instr(node, symbol_table, i)
+            b, sz = generate_instr(node, symbol_table, i)
             buf.extend(b)
+            code_size += sz
+    
+    entry_point = offset
+    if entry_label:
+        if entry_label not in symbol_table:
+            error.error("Entry label not defined: " + entry_label.lower(), 0)
+        entry_point = symbol_table[entry_label.lower()]
 
-    return buf
+        
+
+    return (buf, entry_point, code_size)

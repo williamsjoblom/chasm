@@ -1,11 +1,11 @@
 import struct, re, error
 
 """ OPs """
-ops = ["NOP", "LDA", "TAX", "TXA", "TAY", "TYA", "ADC","SBC", "AND", "ORA", "EOR", "ASL", "LSR", "INX", "DEX", "JMP", "STA", "PHA", "PLA", "JSR", "RTS", "CMP"]
-jmp_ops = [ "JMP", "JSR" ]
+ops = ["NOP", "LDA", "TAX", "TXA", "TAY", "TYA", "ADC","SBC", "AND", "ORA", "EOR", "ASL", "LSR", "INX", "DEX", "JMP", "STA", "PHA", "PLA", "JSR", "RTS", "CMP", "BCS", "BEQ", "BMI", "BNE", "BPL", "BIT", "LDX", "LDY", "STX", "STY"]
+jmp_ops = [ "JMP", "JSR", "BCS", "BEQ", "BMI", "BNE", "BPL"]
 
 """ Addressing Modes """
-IMM, ABS, ZP_ABS, ABS_X, INDIR, ZP_INDIR, INDEXED_INDIR_X, INDIR_INDEXED_X = range(8)
+IMM, ABS, ZP_ABS, ABS_X, INDIR, JMP_ABS, INDEXED_INDIR_X, INDIR_INDEXED_X = range(8)
 IMPL = -1
 
 """
@@ -24,8 +24,6 @@ class Instr:
         if self.op in jmp_ops:
             if self.operand.mode == ZP_ABS:
                 self.operand.mode = ABS
-            elif self.operand.mode == ZP_INDIR:
-                self.operand.mode = INDIR
 
         
     """
@@ -41,7 +39,7 @@ class Instr:
     def addr_mode(self, ln_no):
         if self.op in jmp_ops:
             if self.operand.mode == ABS:
-                return IMM
+                return JMP_ABS
             elif self.operand.mode == INDIR:
                 return ABS
             else:
@@ -86,13 +84,13 @@ class Operand:
         if self.mode == IMM:
             return "#" + str(self.value)
         
-        if self.mode == ABS or self.mode == ZP_ABS:
+        if self.mode == ABS or self.mode == ZP_ABS or self.mode == JMP_ABS:
             return str(self.value)
         
         if self.mode == ABS_X:
             return str(self.value) + ", X"
         
-        if self.mode == INDIR or self.mode == ZP_INDIR:
+        if self.mode == INDIR:
             return "(" + str(self.value) + ")"
         
         if self.mode == INDEXED_INDIR_X:
@@ -109,7 +107,7 @@ class Operand:
         return self.mode == other.mode and self.value == other.value
 
     def __len__(self):   
-        if self.mode in [IMPL, IMM, ZP_ABS, ZP_INDIR]: # 1 byte operands
+        if self.mode in [IMPL, IMM, ZP_ABS]: # 1 byte operands
             return 1
         
         return 2
@@ -158,7 +156,7 @@ def parse_label(line, ln_no):
     if len(line) == 0:
         return (line, None)
 
-    line, label = read(line, str.isalpha)
+    line, label = read(line, (lambda c : c.isalpha() or c == '_'))
     
     if label.upper() not in ops:
         if not line.startswith(":"):
@@ -173,7 +171,7 @@ def parse_label(line, ln_no):
 Parse number.
 """
 def parse_num(line, ln_no):
-    line, label = read(line, str.isalpha)
+    line, label = read(line, (lambda c : c.isalpha() or c == '_'))
     if len(label) != 0:
         if label.upper() not in ops:
             return (line, Label(label))
@@ -205,8 +203,6 @@ Return zero page variant of specified mode if available.
 def zero_page(mode):
     if mode == ABS:
         return ZP_ABS
-    if mode == INDIR:
-        return ZP_INDIR
     return mode
 
 
@@ -338,13 +334,16 @@ Parse line.
 def parse_line(line, ln_no):
     line = line.strip()
     
+    if line.startswith(";"):
+        return [ ]
+
     nline, label = parse_label(line, ln_no)
     if label != None:
         return [ label ] + parse_line(nline, ln_no)
 
     line, op = parse_instr(line, ln_no)
-
-    if len(line) > 0:
+    
+    if len(line) > 0 and not line.trim().startswith(";"):
         error.error("Unexpected trailing characters '" + line + "'", ln_no)
 
     if op == None:
