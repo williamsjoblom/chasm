@@ -8,6 +8,8 @@ jmp_ops = [ "JMP", "JSR", "BCS", "BEQ", "BMI", "BNE", "BPL"]
 IMM, ABS, ZP_ABS, ABS_X, INDIR, JMP_ABS, INDEXED_INDIR_X, INDIR_INDEXED_X = range(8)
 IMPL = -1
 
+FN_IDENTITY = (lambda x: x)
+
 """
 Instruction.
 """
@@ -31,7 +33,7 @@ class Instr:
     """
     def op_code(self):
         return ops.index(self.op.upper())
-
+ 
 
     """
     Addressing mode bits
@@ -118,8 +120,10 @@ class Operand:
 Label
 """
 class Label:
-    def __init__(self, identifier):
-        self.identifier = identifier;
+    def __init__(self, identifier, offset=0, transform_fn=(lambda x: x)):
+        self.identifier = identifier
+        self.offset = offset
+        self.transform_fn = transform_fn
 
     def __str__(self):
         return self.identifier + ":"
@@ -128,8 +132,24 @@ class Label:
 class Literal:
     def __init__(self, data):
         if isinstance(data, str):
-            self.data = data.encode("ascii")
-            print(self.data)
+            self.data = [struct.pack("B", ord(c)) for c in data] + [struct.pack("B", 0)]
+        elif isinstance(data, int):
+            self.data = [struct.pack("B", data)]
+        elif isinstance(data, Label):
+            self.data = data
+        else:
+            error.error("Invalid literal: " + data + " (only strings and integers supported)")
+
+    def __str__(self):
+        return ".data " + str(self.data)
+
+    def __len__(self):
+        if isinstance(self.data, Label):
+            return 2
+        else:
+            return len(self.data)
+        
+            
     
 """
 Read chars from specified line while fn(c) is true.
@@ -159,7 +179,7 @@ def read_index(line):
 Parse label.
 """
 def parse_label(line, ln_no, path):
-    if len(line) == 0:
+    if len(line) == 0 or line.startswith(".data"):
         return (line, None)
 
     line, label = read(line, (lambda c : c.isalpha() or c == '_'))
@@ -172,19 +192,58 @@ def parse_label(line, ln_no, path):
     else:
         return (line, None)
 
+"""
+Parse the immediate specifier for numbers. Ex LDA <LABEL, LDA >LABEL, LDA #54
+"""
+def parse_imm_specifier(line, ln_no, path):
+    if not line:
+        return (line, None)
+
+    if line[0] == "<":
+        return (line[1:], (lambda x: (x >> 8) & 0xFF))
+    elif line[0] == ">":
+        return (line[1:], (lambda x: x & 0xFF))
+    elif line[0] == "#":
+        return (line[1:], (lambda x: x))
+    else:
+        return (line, None)
+                
+
+def parse_offset(line, ln_no, path):
+    line = line.strip()
+    if len(line) == 0 or line[0] not in ["+", "-"]:
+        return (line, 0)
+    
+    sign = line[0]
+    line = line[1:]
+
+    line, num = parse_num(line, ln_no, path)
+    if num == None:
+        error.error("Invalid offset", ln_no, path)
+    if isinstance(num, Label):
+        error.error("Offset must be an integer", ln_no, path)
+
+    if sign == "+":
+        return (line, num)
+    elif sign == "-":
+        return (line, -num)
+    else:
+        error.error("Bad offset", ln_no, path)
+
     
 """
 Parse number.
 """
-def parse_num(line, ln_no, path):
+def parse_num(line, ln_no, path, transform_fn=(lambda x: x)):
     line, label = read(line, (lambda c : c.isalpha() or c == '_'))
     if len(label) != 0:
         if label.upper() not in ops:
-            return (line, Label(label))
+            line, offset = parse_offset(line, ln_no, path)
+            return (line, Label(label, offset, transform_fn))
         else:
             error.error("'" + label + "' not a valid label", ln_no, path)
     
-    base = 10;
+    base = 10
     numbers = "0123456789"
     
     if line.startswith("$"):
@@ -198,14 +257,14 @@ def parse_num(line, ln_no, path):
         return (line, None)
     
     try:
-        return (line, int(result, base))
+        return (line, int(transform_fn(result), base))
     except ValueError:
         error.error("Invalid number literal", ln_no, path)
 
         
 """ 
 Return zero page variant of specified mode if available.
- """
+"""
 def zero_page(mode):
     if mode == ABS:
         return ZP_ABS
@@ -227,15 +286,17 @@ def indexed(mode, ln_no, path):
 Parse immediate operand.
 """
 def parse_imm(line, ln_no, path):
-    if not line.startswith("#"):
+    line, fn = parse_imm_specifier(line, ln_no, path)
+    if fn == None:
         return (line, None)
-
-    line, value = parse_num(line[1:], ln_no, path)
-
+    
+    line, value = parse_num(line, ln_no, path, fn)
+    
     if value == None:
         error.error("Expected immediate value")
 
-    if value > 255:
+    if (isinstance(value, int) and value > 255) or \
+    (isinstance(value, Label) and value.transform_fn(0xFFFF) > 255):
         error.error("Operand must be in range 0-255", ln_no, path)
 
     return (line, Operand(IMM, value))
@@ -315,7 +376,24 @@ def parse_operand(line, ln_no, path):
         error.error("Operand must be in range 0-65535", ln_no, path)
     
     return (line, operand)
+
+"""
+Parse literal.
+"""
+def parse_literal(line, ln_no, path): 
+    line = line.strip()
+    if not line.startswith(".data"):
+        return (line, None)
     
+    line = line.replace(".data", "")
+    line = line.strip()
+    
+    if line.startswith("'"):
+        line, string = read(line[1:], (lambda c : c != "'"))
+        return (line[:-1], Literal(string))
+    else:
+        line, number = parse_num(line, ln_no, path)
+        return (line, Literal(number))
 
 """
 Parse instruction.
@@ -346,16 +424,22 @@ def parse_line(line, ln_no, path):
     nline, label = parse_label(line, ln_no, path)
     if label != None:
         return [ label ] + parse_line(nline, ln_no, path)
-
-    line, op = parse_instr(line, ln_no, path)
     
-    if len(line) > 0 and not line.trim().startswith(";"):
+    op = None
+    line, literal = parse_literal(line, ln_no, path)
+    if not literal:
+        line, op = parse_instr(line, ln_no, path)
+
+    if len(line) > 0 and not line.strip().startswith(";"):
         error.error("Unexpected trailing characters '" + line + "'", ln_no, path)
+        
+    if literal != None:
+        return [literal]
 
-    if op == None:
-        return [ ]
+    if op != None:
+        return [ op ]
     
-    return [ op ]
+    return [ ]
 
 
 """
@@ -366,15 +450,15 @@ def parse(paths):
     
     for path in paths:
         ln_no = 0
-        try:
-            with open(path, "r") as f:
-                for line in f:
-                    parsed_line = parse_line(line, ln_no, path)
-                    nodes.extend(parsed_line)
-                    ln_no += 1
+        #try:
+        with open(path, "r") as f:
+            for line in f:
+                parsed_line = parse_line(line, ln_no, path)
+                nodes.extend(parsed_line)
+                ln_no += 1
                     
                     
-        except:
-            error.error("Error opening file", path=path)
+        #except:
+            #error.error("Error opening file", path=path)
 
     return nodes

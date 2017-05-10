@@ -1,6 +1,6 @@
 import sys, struct, parser, error
 
-from parser import Instr, Operand, Label
+from parser import Instr, Operand, Label, Literal
 from parser import IMPL, IMM, ABS, ZP_ABS, ABS_X, INDIR, JMP_ABS, INDEXED_INDIR_X, INDIR_INDEXED_X
 
 
@@ -13,7 +13,7 @@ def generate_operand(operand, symbol_table, ln_no, path):
     if isinstance(operand.value, Label):
         if operand.value.identifier.lower() not in symbol_table:
             error.error("Label not defined: " + operand.value.identifier.lower(), ln_no, path)
-        value = symbol_table[operand.value.identifier.lower()]
+        value = operand.value.transform_fn(symbol_table[operand.value.identifier.lower()]) + operand.value.offset
     
     if len(operand) == 1: # 8-bit operand
         return (struct.pack("B", value), 1)
@@ -32,6 +32,15 @@ def generate_instr(instr, symbol_table, ln_no, path):
     operand, operand_size = generate_operand(instr.operand, symbol_table, ln_no, path)
     return ([struct.pack("B", operation), operand], 1 + operand_size)
 
+
+def generate_literal(literal, symbol_table, ln_no, path):
+    if isinstance(literal.data, Label):
+        if operand.value.identifier.lower() not in symbol_table:
+            error.error("Label not defined: " + operand.value.identifier.lower(), ln_no, path)
+
+        return (struct.pack("<H", symbol_table[operand.value.identifier.lower()]), 2)
+    else:
+        return (literal.data, len(literal))
     
 """
 Generate symbol table and calculate label offsets.
@@ -62,7 +71,11 @@ def generate(nodes, offset, entry_label):
     code_size = 0
     for i in range(len(nodes)):
         node = nodes[i]
-        if not isinstance(node, Label):
+        if isinstance(node, Literal):
+            b, sz = generate_literal(node, symbol_table, i, None)
+            buf.extend(b)
+            code_size += sz
+        elif isinstance(node, Instr):
             b, sz = generate_instr(node, symbol_table, i, None)
             buf.extend(b)
             code_size += sz
